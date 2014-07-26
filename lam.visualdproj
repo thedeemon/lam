@@ -1,0 +1,11 @@
+<DProject>
+ <ProjectGuid>43d97eda-c7de-410b-ae19-705849e67062</ProjectGuid>
+ <Config name="Debug">
+  <!-- default to defaults -->
+ </Config>
+ <Config name="Release">
+  </Config>
+ <Folder name="lam">
+  <File path="main.d" />
+ </Folder>
+</DProject>
