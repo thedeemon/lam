@@ -79,7 +79,9 @@ class Writer {
                 writeln(cmd.lbl, " -> ", ip);
             } else 
                 ip++;            
+            //show(cmd);
         }
+        //writeln("--------------------");
         foreach(cmd; prg) {
             if (cmd.op != Op.Label) {
                 auto c = Cmd!int(cmd.op, cmd.n, cmd.n2, lbs[cmd.lbl], lbs[cmd.lbl2]);
@@ -218,23 +220,28 @@ class TTuple : Type {
 }
 
 class ArgVal : Val {
-    int pos;
-    this(int mynum) { pos = mynum; }
+    int pos, nesting;
+    this(int mynum, int nst) { pos = mynum; nesting = nst; }
     override void gen(Writer w) {
-        w.put(Cmd!string(Op.LD, 0, pos));
+        w.put(Cmd!string(Op.LD, nesting, pos));
     }
 }
 
 class Args {
     Tuple!(string, Type)[] args;
+    int myLevel;
+
+    static int curLevel = 0;
+
     this(Ts...)(Ts as) { 
         foreach(a; as)
             args ~= a; 
+        myLevel = curLevel;
     }
 
     Val opDispatch(string s)() {
         foreach(i, a; args) {
-            if (a[0]==s) return a[1].create(new ArgVal(i));
+            if (a[0]==s) return a[1].create(new ArgVal(i, curLevel - myLevel));
         }
         assert(0, "unknown arg " ~ s);
     }
@@ -295,6 +302,16 @@ Val cons(Val a, Val b) {
     });
 }
 
+auto defun(Writer w, string name, void delegate(Writer w1) code) {
+    auto w1 = new Writer;
+    w1.label(name);
+    Args.curLevel++;
+    code(w1);
+    Args.curLevel--;
+    w1.put(CMD(Op.RTN));
+    w.addToDefs(w1);
+}
+
 void main(string[] argv)
 {
     Type Int = new TInt;
@@ -311,14 +328,12 @@ void main(string[] argv)
     Writer w = new Writer;   
 
     //def nth
-    w.label("nth");
-    {
+    w.defun("nth", (w) {    
         auto args = new Args("n" in Int, "xs" in new TList(Int));
         if0(args.n, 
                    args.xs.hd, 
-                   call("nth", args.n - num(1), args.xs.tl)).gen(w);
-        w.put(ret);
-    }
+                   call("nth", args.n - 1.num, args.xs.tl)).gen(w);
+    });
     
     /*w.label("try");
     {
@@ -329,7 +344,11 @@ void main(string[] argv)
     w.label("step");
     { // show 3rd row
         auto args = new Args("curDir" in Int, "w" in W);
-        call("nth", 3.num, args.w.map).gen(w);
+        w.defun("showRow", (Writer w) {
+            auto as = new Args("row" in Int);
+            call("nth", as.row, args.w.map).gen(w);
+        });
+        call("showRow", 3.num).gen(w);
         w.put(ret);
     }
 
