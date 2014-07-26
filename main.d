@@ -57,16 +57,22 @@ void show(T)(Cmd!T cmd) {
 }
 
 class Writer {
-    Cmd!string[] prg;
+    CMD[] prg, defs;
     
-    void put(Cmd!string cmd) { 
+    void put(CMD cmd) { 
         prg ~= cmd;
+    }
+
+    void addToDefs(Writer w) {
+        defs ~= w.defs;
+        defs ~= w.prg;
     }
 
     void finish(int start) {
         int[string] lbs;
         int ip = start;
         lbs[""] = 0;
+        prg = defs ~ prg;
         foreach(cmd; prg) {
             if (cmd.op == Op.Label) {
                 lbs[cmd.lbl] = ip;
@@ -241,21 +247,30 @@ void label(Writer w, string lab) {
 string tmpLab(string s) {
     static int n = 0;
     n++;
-    return s ~ n.to!string;
+    return s ~ "_" ~ n.to!string;
 }
 
 
-void if0(Writer w, Val what, Val ifzero, Val ifnonzero, Cmd!string end) {
-    what.gen(w);
-    auto ifz = tmpLab("ifzero");
-    auto ifnz = tmpLab("ifnonzero");
-    w.put(CMD(Op.TSEL, 0,0, ifnz, ifz));
-    w.label(ifz);
-    ifzero.gen(w);
-    w.put(end);
-    w.label(ifnz);
-    ifnonzero.gen(w);
-    w.put(end);
+Val if0(Val what, Val ifzero, Val ifnonzero) {
+    return new GenVal((Writer w) {
+        what.gen(w);
+        auto ifz = tmpLab("ifzero");
+        auto ifnz = tmpLab("ifnonzero");
+        w.put(CMD(Op.SEL, 0,0, ifnz, ifz));
+
+        auto w1 = new Writer;
+        w1.label(ifz);
+        ifzero.gen(w1);
+        w1.put(CMD(Op.JOIN));
+
+        auto w2 = new Writer;
+        w2.label(ifnz);
+        ifnonzero.gen(w2);
+        w2.put(CMD(Op.JOIN));
+
+        w.addToDefs(w1);
+        w.addToDefs(w2);
+    });
 }
 
 Val call(V...)(string fn, V vals) {
@@ -285,30 +300,64 @@ void main(string[] argv)
     Type Int = new TInt;
     Type Pos = new TTuple("x" in Int, "y" in Int);
     Type G = new TTuple("vit" in Int, "pos" in Pos, "dir" in Int);
-    Writer w = new Writer;   
     Type Map = new TList(new TList(Int));
     Type Me = new TTuple("vit" in Int, "pos" in Pos, "dir" in Int, "lives" in Int, "score" in Int);
     Type W = new TTuple("map" in Map, "me" in Me, "gs" in new TList(G), "fruit" in Int);
-
+    auto ret = CMD(Op.RTN);
     //Args vars = new Args([tuple("x", Int), tuple("gs", cast(Type) new TList(G))]);
     //auto v = vars.gs.tl.tl.hd.pos.y;
     //v.gen(w);
 
+    Writer w = new Writer;   
+
     //def nth
-    /*w.label("nth");
-    auto args = new Args("n" in Int, "xs" in new TList(Int));
-    w.if0(args.n, 
-            args.xs.hd, 
-            call("nth", args.n - num(1), args.xs.tl), 
-          CMD(Op.RTN));*/
-
-    //copy first ghost
-    w.label("step");
-    auto args = new Args("my" in Int, "w" in W);
-    cons(num(0), args.w.gs.hd.dir).gen(w);
-
-
+    w.label("nth");
+    {
+        auto args = new Args("n" in Int, "xs" in new TList(Int));
+        if0(args.n, 
+                   args.xs.hd, 
+                   call("nth", args.n - num(1), args.xs.tl)).gen(w);
+        w.put(ret);
+    }
     
+    /*w.label("try");
+    {
+        auto args = new Args("dir" in Int, "w" in W);
+
+    }*/
+
+    w.label("step");
+    { // show 3rd row
+        auto args = new Args("curDir" in Int, "w" in W);
+        call("nth", 3.num, args.w.map).gen(w);
+        w.put(ret);
+    }
+
+    /*{ //copy first ghost
+        auto args = new Args("my" in Int, "w" in W);
+        cons(num(0), args.w.gs.hd.dir).gen(w);
+    } */
+    
+    /*{ //walk around
+        auto args = new Args("curDir" in Int, "w" in W);
+        //try curDir, then 0,1,2,3
+        //try(dir) => neighbor cell value
+
+        auto ret = CMD(Op.RTN);
+        auto answer(Val x) { return cons(x, x); }
+
+        if0(call("try", args.curDir, args.w),
+              if0(call("try", num(0), args.w),
+                  if0(call("try", num(1), args.w),
+                        if0(call("try", num(2), args.w),
+                              if0(call("try", num(3), args.w),
+                                    answer(args.curDir),
+                                    answer(num(3))),
+                              answer(num(2))),
+                        answer(num(1))),
+                  answer(num(0))),
+              answer(args.curDir)).gen(w);
+    }*/
 
     w.finish(4);
 }
