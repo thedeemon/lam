@@ -1,4 +1,4 @@
-import std.stdio, std.typecons, std.conv, std.string;
+import std.stdio, std.typecons, std.conv, std.string, std.range;
 
 enum Op {
     LD, LDC, LDF, AP, ADD, SUB, MUL, DIV, CEQ, CGT, CGTE, ATOM, CONS, CAR, CDR, SEL, JOIN, RTN, DUM, RAP, TSEL, TAP, TRAP, ST,
@@ -59,6 +59,7 @@ void show(T)(Cmd!T cmd, string comment = "") {
 
 class Writer {
     CMD[] prg, defs;
+    static int[string] funLevels;
     
     void put(CMD cmd) { 
         prg ~= cmd;
@@ -99,6 +100,13 @@ class Writer {
                 lbnames = "";
             } else lbnames ~= cmd.lbl ~ ": ";
         }
+    }
+
+    bool looksUpward() {
+        foreach(c; chain(defs, prg))
+            if (c.op == Op.LD && c.n > 0)
+                return true;
+        return false;
     }
 }
 
@@ -291,16 +299,6 @@ Val if0(Val what, Val ifzero, Val ifnonzero) {
     });
 }
 
-Val call(string fn, Val[] vals...) {
-    return new GenVal((Writer w) {
-        foreach(v; vals) {
-            v.gen(w);
-        }
-        w.put(CMD(Op.LDF, 0,0, fn));
-        w.put(CMD(Op.AP, vals.length));
-    });    
-}
-
 Val binOp(Op op, Val a, Val b) { 
     return new GenVal((Writer w) { 
         a.gen(w);
@@ -327,7 +325,32 @@ auto defun(Writer w, string name, ArgDef[] argdefs, void delegate(Writer w1, Arg
     code(w1, new Args(argdefs));
     Args.curLevel--;
     w1.put(CMD(Op.RTN));
+    auto looksUp = w1.looksUpward();
+    if (looksUp)
+        Writer.funLevels[name] = Args.curLevel;
     w.addToDefs(w1);
+}
+
+Val call(string fn, Val[] vals...) {
+    if (fn in Writer.funLevels) {
+        if (Writer.funLevels[fn] != Args.curLevel)
+            assert(0, "calling " ~ fn ~ " from wrong nesting level");
+    } 
+    auto vs = vals.dup;
+    return new GenVal((Writer w) {
+        foreach(v; vs) {
+            v.gen(w);
+        }
+        w.put(CMD(Op.LDF, 0,0, fn));
+        w.put(CMD(Op.AP, vals.length));
+    });    
+}
+
+
+Val let(Writer w,  ArgDef[] argdefs, Val what, void delegate(Writer w1, Args ags) code) {
+    auto fn = tmpLab("let_in");
+    w.defun(fn, argdefs, code);
+    return call(fn, what);
 }
 
 Val eq(Val a, Val b) { return binOp(Op.CEQ, a,b); } // => 1 or 0
@@ -403,6 +426,9 @@ void main(string[] argv)
                     as.x).gen(w);  //1
         });
 
+        /*w.let(["x" in Int], num(4), (w,as) {
+            call("mod4", as.x).gen(w);
+        }).gen(w);*/
         //try curDir, then 0,1,2,3
         //try(dir) => neighbor cell value
         w.defun("try", ["dir" in Int], (w,as) {
@@ -411,6 +437,8 @@ void main(string[] argv)
         });
 
         auto answer(Val x) { return cons(x, x); }
+
+        
 
         if0(call("try", args.curDir),
               if0(call("try", call("mod4", args.curDir + 1.num)),
