@@ -1,4 +1,4 @@
-import std.stdio, std.typecons, std.conv;
+import std.stdio, std.typecons, std.conv, std.string;
 
 enum Op {
     LD, LDC, LDF, AP, ADD, SUB, MUL, DIV, CEQ, CGT, CGTE, ATOM, CONS, CAR, CDR, SEL, JOIN, RTN, DUM, RAP, TSEL, TAP, TRAP, ST,
@@ -45,15 +45,16 @@ struct Cmd(T) {
 
 alias CMD = Cmd!string;
 
-void show(T)(Cmd!T cmd) {
+void show(T)(Cmd!T cmd, string comment = "") {
     write(cmd.op, " ");
     final switch(opKinds[cmd.op]) {
-        case OpKind.Lab: writeln(cmd.lbl); break;
-        case OpKind.Lab2: writeln(cmd.lbl, " ", cmd.lbl2); break;
-        case OpKind.Num: writeln(cmd.n); break;
-        case OpKind.Num2: writeln(cmd.n, " ", cmd.n2); break;
-        case OpKind.Nada: writeln; break;
+        case OpKind.Lab: write(cmd.lbl); break;
+        case OpKind.Lab2: write(cmd.lbl, " ", cmd.lbl2); break;
+        case OpKind.Num: write(cmd.n); break;
+        case OpKind.Num2: write(cmd.n, " ", cmd.n2); break;
+        case OpKind.Nada: write; break;
     }
+    writeln(comment.strip.length==0 ? "" : " ; " ~ comment);
 }
 
 class Writer {
@@ -81,12 +82,22 @@ class Writer {
                 ip++;            
             //show(cmd);
         }
+        string lbnames;
+        int getLab(string lab) { 
+            if (lab in lbs) { 
+                lbnames ~= lab ~ " ";
+                return lbs[lab];
+            }
+            writeln("err: unknown label ", lab);
+            return -666;
+        }
         //writeln("--------------------");
         foreach(cmd; prg) {
-            if (cmd.op != Op.Label) {
-                auto c = Cmd!int(cmd.op, cmd.n, cmd.n2, lbs[cmd.lbl], lbs[cmd.lbl2]);
-                show(c);
-            }
+            if (cmd.op != Op.Label) {                
+                auto c = Cmd!int(cmd.op, cmd.n, cmd.n2, getLab(cmd.lbl), getLab(cmd.lbl2));
+                show(c, lbnames);
+                lbnames = "";
+            } else lbnames ~= cmd.lbl ~ ": ";
         }
     }
 }
@@ -210,9 +221,8 @@ class VTuple : Val {
 
 class TTuple : Type {
     Tuple!(string, Type)[] members;
-    this(Ts...)(Ts membs) { 
-        foreach(m; membs)
-            members ~= m; 
+    this(Tuple!(string, Type)[] membs...) { 
+        members = membs; 
     }
     override Val create(Val parent) {
         return new VTuple(parent, members);
@@ -227,15 +237,16 @@ class ArgVal : Val {
     }
 }
 
+alias ArgDef = Tuple!(string, Type);
+
 class Args {
     Tuple!(string, Type)[] args;
     int myLevel;
 
     static int curLevel = 0;
 
-    this(Ts...)(Ts as) { 
-        foreach(a; as)
-            args ~= a; 
+    this(ArgDef[] as...) { 
+        args = as; 
         myLevel = curLevel;
     }
 
@@ -280,7 +291,7 @@ Val if0(Val what, Val ifzero, Val ifnonzero) {
     });
 }
 
-Val call(V...)(string fn, V vals) {
+Val call(string fn, Val[] vals...) {
     return new GenVal((Writer w) {
         foreach(v; vals) {
             v.gen(w);
@@ -290,27 +301,39 @@ Val call(V...)(string fn, V vals) {
     });    
 }
 
-Val num(int x) {
-    return new GenVal((Writer w) { w.put(CMD(Op.LDC, x)); });
-}
-
-Val cons(Val a, Val b) {
+Val binOp(Op op, Val a, Val b) { 
     return new GenVal((Writer w) { 
         a.gen(w);
         b.gen(w);
-        w.put(CMD(Op.CONS)); 
+        w.put(CMD(op)); 
     });
 }
 
-auto defun(Writer w, string name, void delegate(Writer w1) code) {
+Val num(int x) {  return new GenVal((Writer w) { w.put(CMD(Op.LDC, x)); }); }
+
+Val cons(Val a, Val b) {    return binOp(Op.CONS, a,b); }
+
+Val list(Val[] xs...) {
+    Val v = num(0);
+    foreach_reverse(x; xs)
+        v = cons(x, v);
+    return v;
+}
+
+auto defun(Writer w, string name, ArgDef[] argdefs, void delegate(Writer w1, Args ags) code) {
     auto w1 = new Writer;
     w1.label(name);
     Args.curLevel++;
-    code(w1);
+    code(w1, new Args(argdefs));
     Args.curLevel--;
     w1.put(CMD(Op.RTN));
     w.addToDefs(w1);
 }
+
+Val eq(Val a, Val b) { return binOp(Op.CEQ, a,b); } // => 1 or 0
+Val gt(Val a, Val b) { return binOp(Op.CGT, a,b); } // => 1 or 0
+Val gte(Val a, Val b) { return binOp(Op.CGTE, a,b); } // => 1 or 0
+Val not(Val a) { return num(1) - a; }
 
 void main(string[] argv)
 {
@@ -327,56 +350,79 @@ void main(string[] argv)
 
     Writer w = new Writer;   
 
+    Writer wboot = new Writer;
+    num(0).gen(wboot);
+    wboot.put(CMD(Op.LDF, 0,0, "step"));
+    wboot.put(CMD(Op.CONS));
+    wboot.put(ret);
+    w.addToDefs(wboot);
+
+
     //def nth
-    w.defun("nth", (w) {    
-        auto args = new Args("n" in Int, "xs" in new TList(Int));
+    w.defun("nth", ["n" in Int, "xs" in new TList(Int)], (w, args) {            
         if0(args.n, 
                    args.xs.hd, 
                    call("nth", args.n - 1.num, args.xs.tl)).gen(w);
     });
     
-    /*w.label("try");
-    {
-        auto args = new Args("dir" in Int, "w" in W);
-
-    }*/
-
     w.label("step");
-    { // show 3rd row
+    /*{ // show 3rd row
         auto args = new Args("curDir" in Int, "w" in W);
-        w.defun("showRow", (Writer w) {
-            auto as = new Args("row" in Int);
+        w.defun("showRow", ["row" in Int], (w, as) {
             call("nth", as.row, args.w.map).gen(w);
         });
         call("showRow", 3.num).gen(w);
         w.put(ret);
-    }
+    }*/
 
     /*{ //copy first ghost
         auto args = new Args("my" in Int, "w" in W);
         cons(num(0), args.w.gs.hd.dir).gen(w);
     } */
     
-    /*{ //walk around
+    { //walk around
         auto args = new Args("curDir" in Int, "w" in W);
+
+        w.defun("cell", ["pos" in Pos, "map" in Map], (w,ca) {            
+            auto row = call("nth", ca.pos.y, ca.map);
+            call("nth", ca.pos.x, row).gen(w);
+        });
+
+        w.defun("addVec", ["a" in Pos, "b" in Pos], (w,as) {            
+            cons(as.a.x + as.b.x, as.a.y + as.b.y).gen(w);
+        });
+
+        w.defun("dirVec", ["dir" in Int], (w,as) {
+            auto vecs = list(cons(num(0), num(-1)), cons(num(1),num(0)), cons(num(0), num(1)), cons(num(-1),num(0)));
+            call("nth", as.dir, vecs).gen(w);
+        });
+
+        w.defun("mod4", ["x" in Int], (w,as) {
+            if0(gt(num(4), as.x),
+                    as.x - num(4), //0
+                    as.x).gen(w);  //1
+        });
+
         //try curDir, then 0,1,2,3
         //try(dir) => neighbor cell value
+        w.defun("try", ["dir" in Int], (w,as) {
+            auto coord = call("addVec", args.w.me.pos, call("dirVec", as.dir));
+            call("cell", coord, args.w.map).gen(w);
+        });
 
-        auto ret = CMD(Op.RTN);
         auto answer(Val x) { return cons(x, x); }
 
-        if0(call("try", args.curDir, args.w),
-              if0(call("try", num(0), args.w),
-                  if0(call("try", num(1), args.w),
-                        if0(call("try", num(2), args.w),
-                              if0(call("try", num(3), args.w),
-                                    answer(args.curDir),
-                                    answer(num(3))),
-                              answer(num(2))),
-                        answer(num(1))),
-                  answer(num(0))),
+        if0(call("try", args.curDir),
+              if0(call("try", call("mod4", args.curDir + 1.num)),
+                  if0(call("try", call("mod4", args.curDir + 2.num)),
+                        if0(call("try", call("mod4", args.curDir + 3.num)),
+                              answer(num(0)),
+                              answer(call("mod4", args.curDir + 3.num))),
+                        answer(call("mod4", args.curDir + 2.num))),
+                  answer(call("mod4", args.curDir + 1.num))),
               answer(args.curDir)).gen(w);
-    }*/
+        w.put(ret);
+    }
 
-    w.finish(4);
+    w.finish(0);
 }
