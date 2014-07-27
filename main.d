@@ -1,365 +1,196 @@
-import std.stdio, std.typecons, std.conv, std.string, std.range;
+import std.stdio, std.typecons, std.conv, std.string, std.range, pegged.grammar, std.file, dsl, std.exception;
 
-enum Op {
-    LD, LDC, LDF, AP, ADD, SUB, MUL, DIV, CEQ, CGT, CGTE, ATOM, CONS, CAR, CDR, SEL, JOIN, RTN, DUM, RAP, TSEL, TAP, TRAP, ST,
-    Label
+mixin(grammar(`
+Program:
+	Prog < TypeDef* FunDef+
+	TypeDef < "type" Name "=" (TupleDef / ListDef)
+	TupleDef < "(" ArgDef ("," ArgDef)* ")"
+	ArgDef < Name ":" TypeExpr
+	ListDef < "[" TypeExpr "]"
+	TypeExpr <- "Int" / Name / ListDef
+    Name <~ [A-Za-z]+
+	FunDef < "def" Name TupleDef FunDef* Expr "end"
+	Expr < LetExpr / Single (BinOp Single)*
+	Single < "(" Expr ")" / IfExpr / If0Expr / Const / FunCall / VarExpr  / ConsExpr / ListExpr
+	BinOp <- "+" / "-" / "*" / "/" / "==" / "!=" / "<=" / ">=" / "<" / ">" 
+	LetExpr < "let" Name ":" TypeExpr "=" Expr "in" Expr
+	Const <~ "-"? [0-9]+
+	VarExpr <- Name ("." Name)*
+	ConsExpr < "@(" Expr "," Expr ")"
+	ListExpr < "[" Expr ("," Expr)* "]"
+	FunCall < Name "(" Expr ("," Expr)* ")"
+	IfExpr < "if" Expr "then" Expr "else" Expr
+	If0Expr < "if0" Expr "then" Expr "else" Expr
+`));
+
+Type IntType() {
+	static Type t; //new TInt;
+	if (t is null) t = new TInt;
+	return t;
 }
 
-enum OpKind { 
-    Nada, Num, Num2, Lab, Lab2
+Type[string] types;
+
+Type compileTypeExpr(ParseTree te) {
+	enforce(te.name=="Program.TypeExpr");
+	if (te.matches[0]=="Int") return IntType();
+	enforce(te.children.length > 0);
+	if (te.children[0].name=="Program.Name") return types[te.children[0].matches[0]];
+	if (te.children[0].name=="Program.ListDef") {
+		auto ty = compileTypeExpr(te.children[0].children[0]);
+		return new TList(ty);
+	}
+	assert(0, "bad type expr");
 }
 
-enum OpKind[Op] opKinds = [ 
-    Op.LDC : OpKind.Num, 
-    Op.LD : OpKind.Num2, 
-    Op.ST : OpKind.Num2, 
-    Op.ADD : OpKind.Nada,
-    Op.SUB : OpKind.Nada,
-    Op.MUL : OpKind.Nada,
-    Op.DIV : OpKind.Nada,
-    Op.CEQ : OpKind.Nada,
-    Op.CGT : OpKind.Nada,
-    Op.CGTE : OpKind.Nada,
-    Op.ATOM : OpKind.Nada,
-    Op.CONS : OpKind.Nada,
-    Op.CAR : OpKind.Nada,
-    Op.CDR : OpKind.Nada,
-    Op.SEL : OpKind.Lab2,
-    Op.TSEL : OpKind.Lab2,
-    Op.JOIN : OpKind.Nada,
-    Op.LDF : OpKind.Lab,
-    Op.AP : OpKind.Num,
-    Op.TAP : OpKind.Num,
-    Op.TRAP : OpKind.Num,
-    Op.RTN : OpKind.Nada,
-    Op.DUM : OpKind.Num,
-    Op.RAP : OpKind.Num,
-    Op.Label : OpKind.Lab
-]; 
-
-struct Cmd(T) {
-    Op op;
-    int n, n2;    
-    T lbl, lbl2;
+ArgDef compileArgDef(ParseTree ad) {
+	enforce(ad.name=="Program.ArgDef");
+	enforce(ad.children.length==2);
+	enforce(ad.children[0].name=="Program.Name");
+	auto ty = compileTypeExpr(ad.children[1]);
+	return tuple(ad.children[0].matches[0], ty);
 }
 
-alias CMD = Cmd!string;
-
-void show(T)(Cmd!T cmd, string comment = "") {
-    write(cmd.op, " ");
-    final switch(opKinds[cmd.op]) {
-        case OpKind.Lab: write(cmd.lbl); break;
-        case OpKind.Lab2: write(cmd.lbl, " ", cmd.lbl2); break;
-        case OpKind.Num: write(cmd.n); break;
-        case OpKind.Num2: write(cmd.n, " ", cmd.n2); break;
-        case OpKind.Nada: write; break;
-    }
-    writeln(comment.strip.length==0 ? "" : " ; " ~ comment);
+ArgDef[] compileArgs(ParseTree def) {
+	enforce(def.name=="Program.TupleDef");
+	return def.children.map!(compileArgDef).array;
 }
 
-class Writer {
-    CMD[] prg, defs;
-    static int[string] funLevels;
-    
-    void put(CMD cmd) { 
-        prg ~= cmd;
-    }
-
-    void addToDefs(Writer w) {
-        defs ~= w.defs;
-        defs ~= w.prg;
-    }
-
-    void finish(int start) {
-        int[string] lbs;
-        int ip = start;
-        lbs[""] = 0;
-        prg = defs ~ prg;
-        foreach(cmd; prg) {
-            if (cmd.op == Op.Label) {
-                lbs[cmd.lbl] = ip;
-                writeln(cmd.lbl, " -> ", ip);
-            } else 
-                ip++;            
-            //show(cmd);
-        }
-        string lbnames;
-        int getLab(string lab) { 
-            if (lab in lbs) { 
-                lbnames ~= lab ~ " ";
-                return lbs[lab];
-            }
-            writeln("err: unknown label ", lab);
-            return -666;
-        }
-        //writeln("--------------------");
-        foreach(cmd; prg) {
-            if (cmd.op != Op.Label) {                
-                auto c = Cmd!int(cmd.op, cmd.n, cmd.n2, getLab(cmd.lbl), getLab(cmd.lbl2));
-                show(c, lbnames);
-                lbnames = "";
-            } else lbnames ~= cmd.lbl ~ ": ";
-        }
-    }
-
-    bool looksUpward() {
-        foreach(c; chain(defs, prg))
-            if (c.op == Op.LD && c.n > 0)
-                return true;
-        return false;
-    }
+Type compileTypeDef(ParseTree def) {
+	if (def.name=="Program.TupleDef") {
+		return new TTuple( compileArgs(def) );
+	} else
+	if (def.name=="Program.ListDef") {
+		auto ty = compileTypeExpr(def.children[0]);
+		return new TList(ty);
+	} 
+	assert(0, "bad type def");
 }
 
-class Val {
-    abstract void gen(Writer w);
-    Val opDispatch(string s)() { return getMemb(s); };
+class Scope {
+	Scope parent;
+	ArgDef[] argdefs;
+	Args args;
 
-    Val getMemb(string s) {
-        assert(0, "no members here");
-    }
+	this(ArgDef[] argdefs_, Args args_, Scope par) {
+		argdefs = argdefs_;
+		args = args_;
+		parent = par;
+	}
 
-    Val opBinary(string op)(Val v) {
-        Op o;
-        switch(op) {
-            case "+": o = Op.ADD; break;
-            case "-": o = Op.SUB; break;
-            case "*": o = Op.MUL; break;
-            case "/": o = Op.DIV; break;
-            default: assert(0, "Val no has "~ op);
-        }
-        return new GenVal((Writer w) {
-            gen(w);
-            v.gen(w);
-            w.put(CMD(o));
-        });
-    }
+	Val findVar(string name) {
+		foreach(a; argdefs)
+			if (a[0]==name)
+				return args.getArg(name);
+		if (parent !is null) return parent.findVar(name);
+		assert(0, "var not found: "~ name);
+	}
 }
 
-class Type {
-    abstract Val create(Val parent);
-
-    Tuple!(string, Type) opBinaryRight(string op)(string name)  if (op=="in") {        
-        return tuple(name, this);
-    }
+Val compileLet(Writer w, ParseTree pt, Scope scp) {
+	string name = pt.children[0].matches[0];
+	Type ty = compileTypeExpr(pt.children[1]);
+	ArgDef[] argdefs = [name in ty];
+	return w.let(argdefs, compileExpr(w, pt.children[2], scp), (w,as) {
+		compileExpr(w, pt.children[3], new Scope(argdefs, as, scp)).gen(w);
+	});
 }
 
-class IntVal : Val {
-    Val parent;
-    this(Val par) { parent = par; }
-    override void gen(Writer w) { parent.gen(w); }
+Val compileSingle(Writer w, ParseTree pt, Scope scp) {
+	enforce(pt.name=="Program.Single");
+	auto ch = pt.children[0];
+	switch(ch.name) {
+		case "Program.Const": return num(ch.matches[0].to!int);
+		case "Program.Expr": return compileExpr(w, ch, scp);
+		case "Program.If0Expr": return if0( compileExpr(w, ch.children[0], scp), 
+											compileExpr(w, ch.children[1], scp),
+											compileExpr(w, ch.children[2], scp));
+		case "Program.IfExpr":  return if0( compileExpr(w, ch.children[0], scp), 
+											compileExpr(w, ch.children[2], scp),
+										    compileExpr(w, ch.children[1], scp));
+		case "Program.FunCall": return call(ch.children[0].matches[0], ch.children[1..$].map!(e => compileExpr(w, e, scp)).array);
+		case "Program.ConsExpr": return cons( compileExpr(w, ch.children[0], scp),  compileExpr(w, ch.children[1], scp) );
+		case "Program.ListExpr": return list( ch.children.map!(e => compileExpr(w, e, scp)).array );
+		case "Program.VarExpr":
+			string[] names = ch.children.map!(c => c.matches[0]).array;
+			Val v = scp.findVar(names[0]);
+			foreach(nm; names[1..$])
+				v = v.getMemb(nm);
+			return v;
+		default: assert(0, "bad single expr");
+	}
 }
 
-class TInt : Type {
-    override Val create(Val parent) {
-        return new IntVal(parent);
-    }
+Val compileExpr(Writer w, ParseTree pt, Scope scp) {
+	enforce(pt.name=="Program.Expr");
+	if (pt.children[0].name=="Program.LetExpr")
+		return compileLet(w, pt.children[0], scp);
+	enforce(pt.children[0].name=="Program.Single");
+	Val v = compileSingle(w, pt.children[0], scp);
+	int i = 0;
+	while(i+2 < pt.children.length) {
+		Val v2 = compileSingle(w, pt.children[i+2], scp);
+		switch(pt.children[i+1].matches[0]) {
+			case "+": v = v + v2; break;
+			case "-": v = v - v2; break;
+			case "*": v = v * v2; break;
+			case "/": v = v / v2; break;
+			case "==": v = eq(v, v2); break;
+			case "!=": v = not(eq(v, v2)); break;
+			case ">": v = gt(v, v2); break;
+			case ">=": v = gte(v, v2); break;
+			case "<": v = gt(v2, v); break;
+			case "<=": v = gte(v2, v); break;
+			default: assert(0, "bad bin op " ~ pt.children[i+1].matches[0]);
+		}
+		i += 2;
+	}
+	return v;
 }
 
-class ListVal : Val {
-    Val parent;
-    Type elementType;
-    this(Val par, Type elType) {
-        parent = par;
-        elementType = elType;
-    }
-    override void gen(Writer w) {
-        parent.gen(w);
-    }
-
-    override Val getMemb(string s) { // hd or tl
-        if (s=="hd") {
-            Val val = new GenVal((Writer w) {
-                parent.gen(w);
-                w.put(Cmd!string(Op.CAR));
-            });
-            return elementType.create(val);
-        } 
-        if (s=="tl") {
-            Val val = new GenVal((Writer w) {
-                parent.gen(w);
-                w.put(Cmd!string(Op.CDR));
-            });
-            return (new TList(elementType)).create(val);
-        }
-        assert(0, "this is a list, use hd or tl");
-    }
+void compileFunDef(Writer w, ParseTree fdef, Scope parentScope) {
+	enforce(fdef.name=="Program.FunDef");
+	string fn = fdef.children[0].matches[0];
+	ArgDef[] argdefs = compileArgs(fdef.children[1]);
+	w.defun(fn, argdefs, (w, as) { 
+		auto scp = new Scope(argdefs, as, parentScope);
+		foreach(ch; fdef.children[2..$]) 
+			if (ch.name=="Program.FunDef") {
+				compileFunDef(w, ch, scp);
+			} else
+			if (ch.name=="Program.Expr") {			
+					auto v = compileExpr(w, ch, scp);
+					v.gen(w);
+			} else assert(0, "something weird inside FunDef");
+	});
 }
 
-class TList : Type {
-    Type of;
-    this(Type ofWhat) { of = ofWhat; }
-    override Val create(Val parent) {
-        return new ListVal(parent, of);
-    }
+auto compile(Writer w, ParseTree pt) {
+	auto topdefs = pt.children[0].children;
+	foreach(def; topdefs) 
+		if (def.name=="Program.TypeDef") {
+			enforce(def.children[0].name == "Program.Name");
+			types[ def.children[0].matches[0] ] = compileTypeDef(def.children[1]);
+		} else
+		if (def.name=="Program.FunDef") {
+			compileFunDef(w, def, null);
+		}
+	//writeln(types);
 }
-
-class GenVal : Val {
-    void delegate(Writer w) genfun;
-    this(void delegate(Writer w) f) { genfun = f; }
-    override void gen(Writer w) { genfun(w); }
-}
-
-class VTuple : Val {
-    Tuple!(string, Type)[] members;
-    Val parent;
-
-    this(Val par, Tuple!(string, Type)[] mems) { parent = par; members = mems; }
-
-    override void gen(Writer w) {
-        parent.gen(w);
-    }
-
-    override Val getMemb(string s) { 
-        foreach(i, a; members) {
-            if (a[0]==s) { 
-                auto val = new GenVal((Writer w) {
-                    parent.gen(w);
-                    for(int k = 0; k < i; k++)
-                          w.put(Cmd!string(Op.CDR));
-                    if (i < members.length-1) {
-                        w.put(Cmd!string(Op.CAR));
-                    }                    
-                });
-                return a[1].create(val);
-            }
-        }
-        assert(0, "unknown arg " ~ s);
-    }
-}
-
-class TTuple : Type {
-    Tuple!(string, Type)[] members;
-    this(Tuple!(string, Type)[] membs...) { 
-        members = membs; 
-    }
-    override Val create(Val parent) {
-        return new VTuple(parent, members);
-    }
-}
-
-class ArgVal : Val {
-    int pos, nesting;
-    this(int mynum, int nst) { pos = mynum; nesting = nst; }
-    override void gen(Writer w) {
-        w.put(Cmd!string(Op.LD, nesting, pos));
-    }
-}
-
-alias ArgDef = Tuple!(string, Type);
-
-class Args {
-    Tuple!(string, Type)[] args;
-    int myLevel;
-
-    static int curLevel = 0;
-
-    this(ArgDef[] as...) { 
-        args = as; 
-        myLevel = curLevel;
-    }
-
-    Val opDispatch(string s)() {
-        foreach(i, a; args) {
-            if (a[0]==s) return a[1].create(new ArgVal(i, curLevel - myLevel));
-        }
-        assert(0, "unknown arg " ~ s);
-    }
-}
-
-void label(Writer w, string lab) {
-    w.put(Cmd!string(Op.Label, 0,0, lab));
-}
-
-string tmpLab(string s) {
-    static int n = 0;
-    n++;
-    return s ~ "_" ~ n.to!string;
-}
-
-
-Val if0(Val what, Val ifzero, Val ifnonzero) {
-    return new GenVal((Writer w) {
-        what.gen(w);
-        auto ifz = tmpLab("ifzero");
-        auto ifnz = tmpLab("ifnonzero");
-        w.put(CMD(Op.SEL, 0,0, ifnz, ifz));
-
-        auto w1 = new Writer;
-        w1.label(ifz);
-        ifzero.gen(w1);
-        w1.put(CMD(Op.JOIN));
-
-        auto w2 = new Writer;
-        w2.label(ifnz);
-        ifnonzero.gen(w2);
-        w2.put(CMD(Op.JOIN));
-
-        w.addToDefs(w1);
-        w.addToDefs(w2);
-    });
-}
-
-Val binOp(Op op, Val a, Val b) { 
-    return new GenVal((Writer w) { 
-        a.gen(w);
-        b.gen(w);
-        w.put(CMD(op)); 
-    });
-}
-
-Val num(int x) {  return new GenVal((Writer w) { w.put(CMD(Op.LDC, x)); }); }
-
-Val cons(Val a, Val b) {    return binOp(Op.CONS, a,b); }
-
-Val list(Val[] xs...) {
-    Val v = num(0);
-    foreach_reverse(x; xs)
-        v = cons(x, v);
-    return v;
-}
-
-auto defun(Writer w, string name, ArgDef[] argdefs, void delegate(Writer w1, Args ags) code) {
-    auto w1 = new Writer;
-    w1.label(name);
-    Args.curLevel++;
-    code(w1, new Args(argdefs));
-    Args.curLevel--;
-    w1.put(CMD(Op.RTN));
-    auto looksUp = w1.looksUpward();
-    if (looksUp)
-        Writer.funLevels[name] = Args.curLevel;
-    w.addToDefs(w1);
-}
-
-Val call(string fn, Val[] vals...) {
-    if (fn in Writer.funLevels) {
-        if (Writer.funLevels[fn] != Args.curLevel)
-            assert(0, "calling " ~ fn ~ " from wrong nesting level");
-    } 
-    auto vs = vals.dup;
-    return new GenVal((Writer w) {
-        foreach(v; vs) {
-            v.gen(w);
-        }
-        w.put(CMD(Op.LDF, 0,0, fn));
-        w.put(CMD(Op.AP, vals.length));
-    });    
-}
-
-
-Val let(Writer w,  ArgDef[] argdefs, Val what, void delegate(Writer w1, Args ags) code) {
-    auto fn = tmpLab("let_in");
-    w.defun(fn, argdefs, code);
-    return call(fn, what);
-}
-
-Val eq(Val a, Val b) { return binOp(Op.CEQ, a,b); } // => 1 or 0
-Val gt(Val a, Val b) { return binOp(Op.CGT, a,b); } // => 1 or 0
-Val gte(Val a, Val b) { return binOp(Op.CGTE, a,b); } // => 1 or 0
-Val not(Val a) { return num(1) - a; }
 
 void main(string[] argv)
 {
+	string text = std.file.readText("prg.lam");
+	writeln(text);
+	ParseTree pt = Program(text);
+	writeln(pt);
+	if (pt.successful) {
+		Writer w = new Writer;   
+		compile(w, pt);
+		w.finish(0);
+	}
+
+	return;
     Type Int = new TInt;
     Type Pos = new TTuple("x" in Int, "y" in Int);
     Type G = new TTuple("vit" in Int, "pos" in Pos, "dir" in Int);
