@@ -180,18 +180,27 @@ auto compile(Writer w, ParseTree pt) {
 
 void main(string[] argv)
 {
-	string text = std.file.readText("prg.lam");
+	string fname = argv.length > 1 ? argv[1] : "prg.lam";
+	string text = readText(fname);
 	writeln(text);
 	ParseTree pt = Program(text);
 	writeln(pt);
 	if (pt.successful) {
 		Writer w = new Writer;   
+
+		Writer wboot = new Writer;
+		num(0).gen(wboot);
+		wboot.put(CMD(Op.LDF, 0,0, "step"));
+		wboot.put(CMD(Op.CONS));
+		wboot.put(CMD(Op.RTN));
+		w.addToDefs(wboot);
+
 		compile(w, pt);
 		w.finish(0);
 	}
 
 	return;
-    Type Int = new TInt;
+    /*Type Int = new TInt;
     Type Pos = new TTuple("x" in Int, "y" in Int);
     Type G = new TTuple("vit" in Int, "pos" in Pos, "dir" in Int);
     Type Map = new TList(new TList(Int));
@@ -232,7 +241,7 @@ void main(string[] argv)
     /*{ //copy first ghost
         auto args = new Args("my" in Int, "w" in W);
         cons(num(0), args.w.gs.hd.dir).gen(w);
-    } */
+    } /
     
     { //walk around
         auto args = new Args("curDir" in Int, "w" in W);
@@ -259,7 +268,7 @@ void main(string[] argv)
 
         /*w.let(["x" in Int], num(4), (w,as) {
             call("mod4", as.x).gen(w);
-        }).gen(w);*/
+        }).gen(w);/
         //try curDir, then 0,1,2,3
         //try(dir) => neighbor cell value
         w.defun("try", ["dir" in Int], (w,as) {
@@ -283,5 +292,5 @@ void main(string[] argv)
         w.put(ret);
     }
 
-    w.finish(0);
+    w.finish(0);*/
 }
