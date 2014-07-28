@@ -30,6 +30,7 @@ Type IntType() {
 }
 
 Type[string] types;
+int[string] funArgCount;
 
 Type compileTypeExpr(ParseTree te) {
 	enforce(te.name=="Program.TypeExpr");
@@ -108,7 +109,13 @@ Val compileSingle(Writer w, ParseTree pt, Scope scp) {
 		case "Program.IfExpr":  return if0( compileExpr(w, ch.children[0], scp), 
 											compileExpr(w, ch.children[2], scp),
 										    compileExpr(w, ch.children[1], scp));
-		case "Program.FunCall": return call(ch.children[0].matches[0], ch.children[1..$].map!(e => compileExpr(w, e, scp)).array);
+		case "Program.FunCall": 
+            string fn = ch.children[0].matches[0];
+            auto need = funArgCount.get(fn, -1);
+            auto have = ch.children.length-1;
+            if (need != have) 
+                assert(0, "Err: calling " ~ fn ~ " with " ~ have.text ~ " args instead of " ~ need.text);            
+            return call(fn, ch.children[1..$].map!(e => compileExpr(w, e, scp)).array);
 		case "Program.ConsExpr": return cons( compileExpr(w, ch.children[0], scp),  compileExpr(w, ch.children[1], scp) );
 		case "Program.ListExpr": return list( ch.children.map!(e => compileExpr(w, e, scp)).array );
 		case "Program.VarExpr":
@@ -152,6 +159,7 @@ void compileFunDef(Writer w, ParseTree fdef, Scope parentScope) {
 	enforce(fdef.name=="Program.FunDef");
 	string fn = fdef.children[0].matches[0];
 	ArgDef[] argdefs = compileArgs(fdef.children[1]);
+    funArgCount[fn] = argdefs.length;
 	w.defun(fn, argdefs, (w, as) { 
 		auto scp = new Scope(argdefs, as, parentScope);
 		foreach(ch; fdef.children[2..$]) 
