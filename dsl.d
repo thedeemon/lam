@@ -328,7 +328,7 @@ auto defun(Writer w, string name, ArgDef[] argdefs, void delegate(Writer w1, Arg
     Args.curLevel--;
     w1.put(CMD(Op.RTN));
     auto looksUp = Args.lowestReachingLevel <= Args.curLevel;
-    stderr.writeln(name, " looks up: ", looksUp);
+    //stderr.writeln(name, " looks up: ", looksUp);
     if (looksUp)
         Writer.funLevels[name] = Args.curLevel;
     Args.lowestReachingLevel = oldLowestLevel;

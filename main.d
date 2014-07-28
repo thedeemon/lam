@@ -2,7 +2,7 @@ import std.stdio, std.typecons, std.conv, std.string, std.range, pegged.grammar,
 
 mixin(grammar(`
 Program:
-	Prog < TypeDef* FunDef+
+	Prog < (TypeDef / FunDef)+
 	TypeDef < "type" Name "=" (TupleDef / ListDef)
 	TupleDef < "(" ArgDef ("," ArgDef)* ")"
 	ArgDef < Name ":" TypeExpr
@@ -205,6 +205,7 @@ void main(string[] argv)
 	ParseTree pt = Program(text);
     if (pt.end - pt.begin < text.length) {
         writeln("Parse error somewhere at");
+        stderr.writeln("parse error");
         return writeln(text[pt.end..$]);
     }
 	//writeln(pt);
