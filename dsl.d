@@ -155,16 +155,22 @@ class ListVal : Val {
         if (s=="hd") {
             Val val = new GenVal((Writer w) {
                 parent.gen(w);
-                w.put(Cmd!string(Op.CAR));
+                w.put(CMD(Op.CAR));
             });
             return elementType.create(val);
         } 
         if (s=="tl") {
             Val val = new GenVal((Writer w) {
                 parent.gen(w);
-                w.put(Cmd!string(Op.CDR));
+                w.put(CMD(Op.CDR));
             });
             return (new TList(elementType)).create(val);
+        }
+        if (s=="empty") {
+            return new GenVal((w) {
+                parent.gen(w);
+                w.put(CMD(Op.ATOM));
+            });
         }
         assert(0, "this is a list, use hd or tl");
     }
@@ -237,6 +243,7 @@ class Args {
     int myLevel;
 
     static int curLevel = 0;
+    static int lowestReachingLevel = 999;
 
     this(ArgDef[] as...) { 
         args = as; 
@@ -249,7 +256,11 @@ class Args {
 
 	Val getArg(string s) {
 		foreach(i, a; args) {
-            if (a[0]==s) return a[1].create(new ArgVal(i, curLevel - myLevel));
+            if (a[0]==s)  {
+                if (myLevel < lowestReachingLevel)
+                    lowestReachingLevel = myLevel;
+                return a[1].create(new ArgVal(i, curLevel - myLevel));
+            }
         }
         assert(0, "unknown arg " ~ s);
 	}
@@ -310,13 +321,17 @@ Val list(Val[] xs...) {
 auto defun(Writer w, string name, ArgDef[] argdefs, void delegate(Writer w1, Args ags) code) {
     auto w1 = new Writer;
     w1.label(name);
+    int oldLowestLevel = Args.lowestReachingLevel;
+    Args.lowestReachingLevel = 999;
     Args.curLevel++;
     code(w1, new Args(argdefs));
     Args.curLevel--;
     w1.put(CMD(Op.RTN));
-    auto looksUp = w1.looksUpward();
+    auto looksUp = Args.lowestReachingLevel <= Args.curLevel;
+    stderr.writeln(name, " looks up: ", looksUp);
     if (looksUp)
         Writer.funLevels[name] = Args.curLevel;
+    Args.lowestReachingLevel = oldLowestLevel;
     w.addToDefs(w1);
 }
 

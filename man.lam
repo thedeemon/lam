@@ -1,0 +1,70 @@
+type Pos = (x : Int, y : Int)
+type G = (vit : Int, pos : Pos, dir : Int)
+type Map = [[Int]]
+type Me = (vit : Int, pos : Pos, dir : Int, lives : Int, score : Int)
+type W = (map : Map, me : Me, gs : [G], fruit : Int)
+
+type Trio = (up : Int, here : Int, down : Int)
+type R = (rs : [Int], nbs : Trio)
+type ABC = (a : *, b : *, c : *)
+
+def nth(n : Int, xs : [*])
+  if0 n then xs.hd else nth(n-1, xs.tl)
+end
+
+def length(xs : [*])
+  if xs.empty then 0 else 1 + length(xs.tl)
+end
+
+def makeList(n : Int, elt : *)
+  if0 n then [] else @(elt, makeList(n-1, elt))
+end
+
+def append(xs : [*], ys : [*])
+  if xs.empty then ys else @(xs.hd, append(xs.tl, ys))
+end
+
+def take(n : Int, xs : [*])
+  if0 n then [] else @(xs.hd, take(n-1, xs.tl))
+end
+
+def drop(n : Int, xs : [*])
+  if0 n then xs else drop(n-1, xs.tl)
+end
+
+def notWall(x : Int)
+  if0 x then 0 else 1
+end
+
+def countFreeNb(upRow : [Int], row : [Int], downRow : [Int], left : Trio) 
+  if row.empty then @([], @(0,0,0)) else
+  let col : Trio = @(notWall(upRow.hd), notWall(row.hd), notWall(downRow.hd)) in
+  let right : R = countFreeNb(upRow.tl, row.tl, downRow.tl, col) in
+  let n : Int = if0 row.hd then 0 else left.here + col.up + col.down + right.nbs.here in
+  @( @(n, right.rs), col) 
+end
+
+def take3(nFirst : Int, xs : [*])
+  let t : [*] = drop(nFirst, xs) in
+  @(t.hd, t.tl.hd, t.tl.tl.hd)
+end
+
+def mapFreeNb(rows : [[Int]], y : Int, res : [[Int]])
+  if0 y then res else
+  let rws : ABC = take3(y-1, rows) in
+  let r : R = countFreeNb(rws.a, rws.b, rws.c, @(0,0,0)) in
+  mapFreeNb(rows, y-1, @(r.rs, res))
+end
+
+def init(wld : W)
+  let h : Int = length(wld.map) in
+  let w : Int = length(wld.map.hd) in
+  let zeros : [Int] = makeList(w, 0) in
+  let nbmap : [[Int]] = @(zeros, mapFreeNb(wld.map, h-2, [zeros])) in
+  print( nbmap, 0)
+end
+
+def step(curDir : Int, w : W)
+  let d2 : Int = w.gs.hd.dir in 
+  @(d2,d2)
+end

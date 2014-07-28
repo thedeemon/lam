@@ -7,17 +7,17 @@ Program:
 	TupleDef < "(" ArgDef ("," ArgDef)* ")"
 	ArgDef < Name ":" TypeExpr
 	ListDef < "[" TypeExpr "]"
-	TypeExpr <- "Int" / Name / ListDef
+	TypeExpr <- "Int" / Name / ListDef / "*"
     Name <~ [A-Za-z][A-Za-z0-9]*
-	FunDef < "def" Name TupleDef FunDef* Expr "end"
+	FunDef < :Comment* "def" Name TupleDef FunDef* Expr "end"
 	Expr < :Comment* (LetExpr / Single (BinOp Single)*)
 	Single < "(" Expr ")" / IfExpr / If0Expr / Const / FunCall / VarExpr  / ConsExpr / ListExpr
 	BinOp <- "+" / "-" / "*" / "/" / "==" / "!=" / "<=" / ">=" / "<" / ">" 
 	LetExpr < "let" Name ":" TypeExpr "=" Expr "in" Expr
 	Const <~ "-"? [0-9]+
 	VarExpr <- Name ("." Name)*
-	ConsExpr < "@(" Expr "," Expr ")"
-	ListExpr < "[" Expr ("," Expr)* "]"
+	ConsExpr < "@(" Expr ("," Expr)+ ")"
+	ListExpr < "[" Expr? ("," Expr)* "]"
 	FunCall < Name "(" Expr ("," Expr)* ")"
 	IfExpr < "if" Expr "then" Expr "else" Expr
 	If0Expr < "if0" Expr "then" Expr "else" Expr
@@ -35,7 +35,7 @@ int[string] funArgCount;
 
 Type compileTypeExpr(ParseTree te) {
 	enforce(te.name=="Program.TypeExpr");
-	if (te.matches[0]=="Int") return IntType();
+	if (te.matches[0]=="Int" || te.matches[0]=="*") return IntType();
 	enforce(te.children.length > 0);
 	if (te.children[0].name=="Program.Name") return types[te.children[0].matches[0]];
 	if (te.children[0].name=="Program.ListDef") {
@@ -122,7 +122,14 @@ Val compileSingle(Writer w, ParseTree pt, Scope scp) {
             if (need != have) 
                 assert(0, "Err: calling " ~ fn ~ " with " ~ have.text ~ " args instead of " ~ need.text);            
             return call(fn, ch.children[1..$].map!(e => compileExpr(w, e, scp)).array);
-		case "Program.ConsExpr": return cons( compileExpr(w, ch.children[0], scp),  compileExpr(w, ch.children[1], scp) );
+		case "Program.ConsExpr": 
+            int i = ch.children.length-2;
+            Val v = cons( compileExpr(w, ch.children[i], scp),  compileExpr(w, ch.children[i+1], scp) );
+            while(i > 0) {
+                i--;
+                v = cons( compileExpr(w, ch.children[i], scp), v);
+            }
+            return v;
 		case "Program.ListExpr": return list( ch.children.map!(e => compileExpr(w, e, scp)).array );
 		case "Program.VarExpr":
 			string[] names = ch.children.map!(c => c.matches[0]).array;
