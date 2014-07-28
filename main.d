@@ -8,9 +8,9 @@ Program:
 	ArgDef < Name ":" TypeExpr
 	ListDef < "[" TypeExpr "]"
 	TypeExpr <- "Int" / Name / ListDef
-    Name <~ [A-Za-z]+
+    Name <~ [A-Za-z][A-Za-z0-9]*
 	FunDef < "def" Name TupleDef FunDef* Expr "end"
-	Expr < LetExpr / Single (BinOp Single)*
+	Expr < :Comment* (LetExpr / Single (BinOp Single)*)
 	Single < "(" Expr ")" / IfExpr / If0Expr / Const / FunCall / VarExpr  / ConsExpr / ListExpr
 	BinOp <- "+" / "-" / "*" / "/" / "==" / "!=" / "<=" / ">=" / "<" / ">" 
 	LetExpr < "let" Name ":" TypeExpr "=" Expr "in" Expr
@@ -21,6 +21,7 @@ Program:
 	FunCall < Name "(" Expr ("," Expr)* ")"
 	IfExpr < "if" Expr "then" Expr "else" Expr
 	If0Expr < "if0" Expr "then" Expr "else" Expr
+    Comment <- "/*" (!"*" .)* "*/"
 `));
 
 Type IntType() {
@@ -46,7 +47,6 @@ Type compileTypeExpr(ParseTree te) {
 
 ArgDef compileArgDef(ParseTree ad) {
 	enforce(ad.name=="Program.ArgDef");
-	enforce(ad.children.length==2);
 	enforce(ad.children[0].name=="Program.Name");
 	auto ty = compileTypeExpr(ad.children[1]);
 	return tuple(ad.children[0].matches[0], ty);
@@ -111,8 +111,14 @@ Val compileSingle(Writer w, ParseTree pt, Scope scp) {
 										    compileExpr(w, ch.children[1], scp));
 		case "Program.FunCall": 
             string fn = ch.children[0].matches[0];
-            auto need = funArgCount.get(fn, -1);
             auto have = ch.children.length-1;
+            if (fn=="print") { // print(a, b) outputs a, returns b
+                enforce(have==2, "print must have 2 args");
+                Val v = compileExpr(w, ch.children[1], scp);
+                Val v2 = compileExpr(w, ch.children[2], scp);
+                return new GenVal((w) { v.gen(w); w.put(CMD(Op.DBUG)); v2.gen(w); });
+            }
+            auto need = funArgCount.get(fn, -1);            
             if (need != have) 
                 assert(0, "Err: calling " ~ fn ~ " with " ~ have.text ~ " args instead of " ~ need.text);            
             return call(fn, ch.children[1..$].map!(e => compileExpr(w, e, scp)).array);
@@ -183,32 +189,42 @@ auto compile(Writer w, ParseTree pt) {
 		if (def.name=="Program.FunDef") {
 			compileFunDef(w, def, null);
 		}
-	//writeln(types);
 }
 
 void main(string[] argv)
 {
 	string fname = argv.length > 1 ? argv[1] : "prg.lam";
 	string text = readText(fname);
-	writeln(text);
 	ParseTree pt = Program(text);
-	writeln(pt);
+    if (pt.end - pt.begin < text.length) {
+        writeln("Parse error somewhere at");
+        return writeln(text[pt.end..$]);
+    }
+	//writeln(pt);
 	if (pt.successful) {
-		Writer w = new Writer;   
-
 		Writer wboot = new Writer;
-		num(0).gen(wboot);
+		/*num(0).gen(wboot);
 		wboot.put(CMD(Op.LDF, 0,0, "step"));
 		wboot.put(CMD(Op.CONS));
-		wboot.put(CMD(Op.RTN));
-		w.addToDefs(wboot);
+		wboot.put(CMD(Op.RTN));*/
 
+        //num(0).gen(wboot);
+        wboot.put(CMD(Op.LD, 0, 0)); // push world
+        wboot.put(CMD(Op.LDF, 0,0, "init")); // call init
+        wboot.put(CMD(Op.AP, 1)); // returns state
+
+        wboot.put(CMD(Op.LDF, 0,0, "step"));
+		wboot.put(CMD(Op.CONS));
+		wboot.put(CMD(Op.RTN));
+        Writer w = new Writer;   
+		w.addToDefs(wboot);
 		compile(w, pt);
 		w.finish(0);
 	}
 
 	return;
-    /*Type Int = new TInt;
+    /*  ////////////////////////// This is the old DSL used before parsing was added //////////////////////////
+    Type Int = new TInt;
     Type Pos = new TTuple("x" in Int, "y" in Int);
     Type G = new TTuple("vit" in Int, "pos" in Pos, "dir" in Int);
     Type Map = new TList(new TList(Int));

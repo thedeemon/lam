@@ -2,8 +2,8 @@ module dsl;
 import std.stdio, std.typecons, std.conv, std.string, std.range;
 
 enum Op {
-    LD, LDC, LDF, AP, ADD, SUB, MUL, DIV, CEQ, CGT, CGTE, ATOM, CONS, CAR, CDR, SEL, JOIN, RTN, DUM, RAP, TSEL, TAP, TRAP, ST,
-    Label
+    LD, LDC, LDF, AP, ADD, SUB, MUL, DIV, CEQ, CGT, CGTE, ATOM, CONS, CAR, CDR, 
+    SEL, JOIN, RTN, DUM, RAP, TSEL, TAP, TRAP, ST, DBUG, Label
 }
 
 enum OpKind { 
@@ -11,31 +11,15 @@ enum OpKind {
 }
 
 enum OpKind[Op] opKinds = [ 
-    Op.LDC : OpKind.Num, 
-    Op.LD : OpKind.Num2, 
-    Op.ST : OpKind.Num2, 
-    Op.ADD : OpKind.Nada,
-    Op.SUB : OpKind.Nada,
-    Op.MUL : OpKind.Nada,
-    Op.DIV : OpKind.Nada,
-    Op.CEQ : OpKind.Nada,
-    Op.CGT : OpKind.Nada,
-    Op.CGTE : OpKind.Nada,
-    Op.ATOM : OpKind.Nada,
-    Op.CONS : OpKind.Nada,
-    Op.CAR : OpKind.Nada,
-    Op.CDR : OpKind.Nada,
-    Op.SEL : OpKind.Lab2,
-    Op.TSEL : OpKind.Lab2,
-    Op.JOIN : OpKind.Nada,
-    Op.LDF : OpKind.Lab,
-    Op.AP : OpKind.Num,
-    Op.TAP : OpKind.Num,
-    Op.TRAP : OpKind.Num,
-    Op.RTN : OpKind.Nada,
-    Op.DUM : OpKind.Num,
-    Op.RAP : OpKind.Num,
-    Op.Label : OpKind.Lab
+    Op.LDC : OpKind.Num,     Op.LD : OpKind.Num2,     Op.ST : OpKind.Num2, 
+    Op.ADD : OpKind.Nada,    Op.SUB : OpKind.Nada,    Op.MUL : OpKind.Nada,
+    Op.DIV : OpKind.Nada,    Op.CEQ : OpKind.Nada,    Op.CGT : OpKind.Nada,
+    Op.CGTE : OpKind.Nada,   Op.ATOM : OpKind.Nada,   Op.CONS : OpKind.Nada,
+    Op.CAR : OpKind.Nada,    Op.CDR : OpKind.Nada,    Op.SEL : OpKind.Lab2,
+    Op.TSEL : OpKind.Lab2,   Op.JOIN : OpKind.Nada,   Op.LDF : OpKind.Lab,
+    Op.AP : OpKind.Num,      Op.TAP : OpKind.Num,     Op.TRAP : OpKind.Num,
+    Op.RTN : OpKind.Nada,    Op.DUM : OpKind.Num,     Op.RAP : OpKind.Num,
+    Op.DBUG : OpKind.Nada,   Op.Label : OpKind.Lab
 ]; 
 
 struct Cmd(T) {
@@ -79,7 +63,7 @@ class Writer {
         foreach(cmd; prg) {
             if (cmd.op == Op.Label) {
                 lbs[cmd.lbl] = ip;
-                writeln(cmd.lbl, " -> ", ip);
+                //writeln(cmd.lbl, " -> ", ip);
             } else 
                 ip++;            
             //show(cmd);
