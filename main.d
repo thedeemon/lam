@@ -2,114 +2,114 @@ import std.stdio, std.typecons, std.conv, std.string, std.range, pegged.grammar,
 
 mixin(grammar(`
 Program:
-	Prog < (TypeDef / FunDef)+
-	TypeDef < "type" Name "=" (TupleDef / ListDef)
-	TupleDef < "(" ArgDef ("," ArgDef)* ")"
-	ArgDef < Name ":" TypeExpr
-	ListDef < "[" TypeExpr "]"
-	TypeExpr <- "Int" / Name / ListDef / "*"
+    Prog < (TypeDef / FunDef)+
+    TypeDef < "type" Name "=" (TupleDef / ListDef)
+    TupleDef < "(" ArgDef ("," ArgDef)* ")"
+    ArgDef < Name ":" TypeExpr
+    ListDef < "[" TypeExpr "]"
+    TypeExpr <- "Int" / Name / ListDef / "*"
     Name <~ [A-Za-z][A-Za-z0-9]*
-	FunDef < :Comment* "def" Name TupleDef FunDef* Expr "end"
-	Expr < :Comment* (LetExpr / Single (BinOp Single)*)
-	Single < "(" Expr ")" / IfExpr / If0Expr / Const / FunCall / VarExpr  / ConsExpr / ListExpr
-	BinOp <- "+" / "-" / "*" / "/" / "==" / "!=" / "<=" / ">=" / "<" / ">" 
-	LetExpr < "let" Name ":" TypeExpr "=" Expr "in" Expr
-	Const <~ "-"? [0-9]+
-	VarExpr <- Name ("." Name)*
-	ConsExpr < "@(" Expr ("," Expr)+ ")"
-	ListExpr < "[" Expr? ("," Expr)* "]"
-	FunCall < Name "(" Expr ("," Expr)* ")"
-	IfExpr < "if" Expr "then" Expr "else" Expr
-	If0Expr < "if0" Expr "then" Expr "else" Expr
+    FunDef < :Comment* "def" Name TupleDef FunDef* Expr "end"
+    Expr < :Comment* (LetExpr / Single (BinOp Single)*)
+    Single < "(" Expr ")" / IfExpr / If0Expr / Const / FunCall / VarExpr  / ConsExpr / ListExpr
+    BinOp <- "+" / "-" / "*" / "/" / "==" / "!=" / "<=" / ">=" / "<" / ">" 
+    LetExpr < "let" Name ":" TypeExpr "=" Expr "in" Expr
+    Const <~ "-"? [0-9]+
+    VarExpr <- Name ("." Name)*
+    ConsExpr < "@(" Expr ("," Expr)+ ")"
+    ListExpr < "[" Expr? ("," Expr)* "]"
+    FunCall < Name "(" Expr ("," Expr)* ")"
+    IfExpr < "if" Expr "then" Expr "else" Expr
+    If0Expr < "if0" Expr "then" Expr "else" Expr
     Comment <- "/*" (!"*" .)* "*/"
 `));
 
 Type IntType() {
-	static Type t; //new TInt;
-	if (t is null) t = new TInt;
-	return t;
+    static Type t; //new TInt;
+    if (t is null) t = new TInt;
+    return t;
 }
 
 Type[string] types;
 int[string] funArgCount;
 
 Type compileTypeExpr(ParseTree te) {
-	enforce(te.name=="Program.TypeExpr");
-	if (te.matches[0]=="Int" || te.matches[0]=="*") return IntType();
-	enforce(te.children.length > 0);
-	if (te.children[0].name=="Program.Name") return types[te.children[0].matches[0]];
-	if (te.children[0].name=="Program.ListDef") {
-		auto ty = compileTypeExpr(te.children[0].children[0]);
-		return new TList(ty);
-	}
-	assert(0, "bad type expr");
+    enforce(te.name=="Program.TypeExpr");
+    if (te.matches[0]=="Int" || te.matches[0]=="*") return IntType();
+    enforce(te.children.length > 0);
+    if (te.children[0].name=="Program.Name") return types[te.children[0].matches[0]];
+    if (te.children[0].name=="Program.ListDef") {
+        auto ty = compileTypeExpr(te.children[0].children[0]);
+        return new TList(ty);
+    }
+    assert(0, "bad type expr");
 }
 
 ArgDef compileArgDef(ParseTree ad) {
-	enforce(ad.name=="Program.ArgDef");
-	enforce(ad.children[0].name=="Program.Name");
-	auto ty = compileTypeExpr(ad.children[1]);
-	return tuple(ad.children[0].matches[0], ty);
+    enforce(ad.name=="Program.ArgDef");
+    enforce(ad.children[0].name=="Program.Name");
+    auto ty = compileTypeExpr(ad.children[1]);
+    return tuple(ad.children[0].matches[0], ty);
 }
 
 ArgDef[] compileArgs(ParseTree def) {
-	enforce(def.name=="Program.TupleDef");
-	return def.children.map!(compileArgDef).array;
+    enforce(def.name=="Program.TupleDef");
+    return def.children.map!(compileArgDef).array;
 }
 
 Type compileTypeDef(ParseTree def) {
-	if (def.name=="Program.TupleDef") {
-		return new TTuple( compileArgs(def) );
-	} else
-	if (def.name=="Program.ListDef") {
-		auto ty = compileTypeExpr(def.children[0]);
-		return new TList(ty);
-	} 
-	assert(0, "bad type def");
+    if (def.name=="Program.TupleDef") {
+        return new TTuple( compileArgs(def) );
+    } else
+    if (def.name=="Program.ListDef") {
+        auto ty = compileTypeExpr(def.children[0]);
+        return new TList(ty);
+    } 
+    assert(0, "bad type def");
 }
 
 class Scope {
-	Scope parent;
-	ArgDef[] argdefs;
-	Args args;
+    Scope parent;
+    ArgDef[] argdefs;
+    Args args;
 
-	this(ArgDef[] argdefs_, Args args_, Scope par) {
-		argdefs = argdefs_;
-		args = args_;
-		parent = par;
-	}
+    this(ArgDef[] argdefs_, Args args_, Scope par) {
+        argdefs = argdefs_;
+        args = args_;
+        parent = par;
+    }
 
-	Val findVar(string name) {
-		foreach(a; argdefs)
-			if (a[0]==name)
-				return args.getArg(name);
-		if (parent !is null) return parent.findVar(name);
-		assert(0, "var not found: "~ name);
-	}
+    Val findVar(string name) {
+        foreach(a; argdefs)
+            if (a[0]==name)
+                return args.getArg(name);
+        if (parent !is null) return parent.findVar(name);
+        assert(0, "var not found: "~ name);
+    }
 }
 
 Val compileLet(Writer w, ParseTree pt, Scope scp) {
-	string name = pt.children[0].matches[0];
-	Type ty = compileTypeExpr(pt.children[1]);
-	ArgDef[] argdefs = [name in ty];
-	return w.let(argdefs, compileExpr(w, pt.children[2], scp), (w,as) {
-		compileExpr(w, pt.children[3], new Scope(argdefs, as, scp)).gen(w);
-	});
+    string name = pt.children[0].matches[0];
+    Type ty = compileTypeExpr(pt.children[1]);
+    ArgDef[] argdefs = [name in ty];
+    return w.let(argdefs, compileExpr(w, pt.children[2], scp), (w,as) {
+        compileExpr(w, pt.children[3], new Scope(argdefs, as, scp)).gen(w);
+    });
 }
 
 Val compileSingle(Writer w, ParseTree pt, Scope scp) {
-	enforce(pt.name=="Program.Single");
-	auto ch = pt.children[0];
-	switch(ch.name) {
-		case "Program.Const": return num(ch.matches[0].to!int);
-		case "Program.Expr": return compileExpr(w, ch, scp);
-		case "Program.If0Expr": return if0( compileExpr(w, ch.children[0], scp), 
-											compileExpr(w, ch.children[1], scp),
-											compileExpr(w, ch.children[2], scp));
-		case "Program.IfExpr":  return if0( compileExpr(w, ch.children[0], scp), 
-											compileExpr(w, ch.children[2], scp),
-										    compileExpr(w, ch.children[1], scp));
-		case "Program.FunCall": 
+    enforce(pt.name=="Program.Single");
+    auto ch = pt.children[0];
+    switch(ch.name) {
+        case "Program.Const": return num(ch.matches[0].to!int);
+        case "Program.Expr": return compileExpr(w, ch, scp);
+        case "Program.If0Expr": return if0( compileExpr(w, ch.children[0], scp), 
+                                            compileExpr(w, ch.children[1], scp),
+                                            compileExpr(w, ch.children[2], scp));
+        case "Program.IfExpr":  return if0( compileExpr(w, ch.children[0], scp), 
+                                            compileExpr(w, ch.children[2], scp),
+                                            compileExpr(w, ch.children[1], scp));
+        case "Program.FunCall": 
             string fn = ch.children[0].matches[0];
             auto have = ch.children.length-1;
             if (fn=="print") { // print(a, b) outputs a, returns b
@@ -122,7 +122,7 @@ Val compileSingle(Writer w, ParseTree pt, Scope scp) {
             if (need != have) 
                 assert(0, "Err: calling " ~ fn ~ " with " ~ have.text ~ " args instead of " ~ need.text);            
             return call(fn, ch.children[1..$].map!(e => compileExpr(w, e, scp)).array);
-		case "Program.ConsExpr": 
+        case "Program.ConsExpr": 
             int i = ch.children.length-2;
             Val v = cons( compileExpr(w, ch.children[i], scp),  compileExpr(w, ch.children[i+1], scp) );
             while(i > 0) {
@@ -130,91 +130,91 @@ Val compileSingle(Writer w, ParseTree pt, Scope scp) {
                 v = cons( compileExpr(w, ch.children[i], scp), v);
             }
             return v;
-		case "Program.ListExpr": return list( ch.children.map!(e => compileExpr(w, e, scp)).array );
-		case "Program.VarExpr":
-			string[] names = ch.children.map!(c => c.matches[0]).array;
-			Val v = scp.findVar(names[0]);
-			foreach(nm; names[1..$])
-				v = v.getMemb(nm);
-			return v;
-		default: assert(0, "bad single expr");
-	}
+        case "Program.ListExpr": return list( ch.children.map!(e => compileExpr(w, e, scp)).array );
+        case "Program.VarExpr":
+            string[] names = ch.children.map!(c => c.matches[0]).array;
+            Val v = scp.findVar(names[0]);
+            foreach(nm; names[1..$])
+                v = v.getMemb(nm);
+            return v;
+        default: assert(0, "bad single expr");
+    }
 }
 
 Val compileExpr(Writer w, ParseTree pt, Scope scp) {
-	enforce(pt.name=="Program.Expr");
-	if (pt.children[0].name=="Program.LetExpr")
-		return compileLet(w, pt.children[0], scp);
-	enforce(pt.children[0].name=="Program.Single");
-	Val v = compileSingle(w, pt.children[0], scp);
-	int i = 0;
-	while(i+2 < pt.children.length) {
-		Val v2 = compileSingle(w, pt.children[i+2], scp);
-		switch(pt.children[i+1].matches[0]) {
-			case "+": v = v + v2; break;
-			case "-": v = v - v2; break;
-			case "*": v = v * v2; break;
-			case "/": v = v / v2; break;
-			case "==": v = eq(v, v2); break;
-			case "!=": v = not(eq(v, v2)); break;
-			case ">": v = gt(v, v2); break;
-			case ">=": v = gte(v, v2); break;
-			case "<": v = gt(v2, v); break;
-			case "<=": v = gte(v2, v); break;
-			default: assert(0, "bad bin op " ~ pt.children[i+1].matches[0]);
-		}
-		i += 2;
-	}
-	return v;
+    enforce(pt.name=="Program.Expr");
+    if (pt.children[0].name=="Program.LetExpr")
+        return compileLet(w, pt.children[0], scp);
+    enforce(pt.children[0].name=="Program.Single");
+    Val v = compileSingle(w, pt.children[0], scp);
+    int i = 0;
+    while(i+2 < pt.children.length) {
+        Val v2 = compileSingle(w, pt.children[i+2], scp);
+        switch(pt.children[i+1].matches[0]) {
+            case "+": v = v + v2; break;
+            case "-": v = v - v2; break;
+            case "*": v = v * v2; break;
+            case "/": v = v / v2; break;
+            case "==": v = eq(v, v2); break;
+            case "!=": v = not(eq(v, v2)); break;
+            case ">": v = gt(v, v2); break;
+            case ">=": v = gte(v, v2); break;
+            case "<": v = gt(v2, v); break;
+            case "<=": v = gte(v2, v); break;
+            default: assert(0, "bad bin op " ~ pt.children[i+1].matches[0]);
+        }
+        i += 2;
+    }
+    return v;
 }
 
 void compileFunDef(Writer w, ParseTree fdef, Scope parentScope) {
-	enforce(fdef.name=="Program.FunDef");
-	string fn = fdef.children[0].matches[0];
-	ArgDef[] argdefs = compileArgs(fdef.children[1]);
+    enforce(fdef.name=="Program.FunDef");
+    string fn = fdef.children[0].matches[0];
+    ArgDef[] argdefs = compileArgs(fdef.children[1]);
     funArgCount[fn] = argdefs.length;
-	w.defun(fn, argdefs, (w, as) { 
-		auto scp = new Scope(argdefs, as, parentScope);
-		foreach(ch; fdef.children[2..$]) 
-			if (ch.name=="Program.FunDef") {
-				compileFunDef(w, ch, scp);
-			} else
-			if (ch.name=="Program.Expr") {			
-					auto v = compileExpr(w, ch, scp);
-					v.gen(w);
-			} else assert(0, "something weird inside FunDef");
-	});
+    w.defun(fn, argdefs, (w, as) { 
+        auto scp = new Scope(argdefs, as, parentScope);
+        foreach(ch; fdef.children[2..$]) 
+            if (ch.name=="Program.FunDef") {
+                compileFunDef(w, ch, scp);
+            } else
+            if (ch.name=="Program.Expr") {			
+                    auto v = compileExpr(w, ch, scp);
+                    v.gen(w);
+            } else assert(0, "something weird inside FunDef");
+    });
 }
 
 auto compile(Writer w, ParseTree pt) {
-	auto topdefs = pt.children[0].children;
-	foreach(def; topdefs) 
-		if (def.name=="Program.TypeDef") {
-			enforce(def.children[0].name == "Program.Name");
-			types[ def.children[0].matches[0] ] = compileTypeDef(def.children[1]);
-		} else
-		if (def.name=="Program.FunDef") {
-			compileFunDef(w, def, null);
-		}
+    auto topdefs = pt.children[0].children;
+    foreach(def; topdefs) 
+        if (def.name=="Program.TypeDef") {
+            enforce(def.children[0].name == "Program.Name");
+            types[ def.children[0].matches[0] ] = compileTypeDef(def.children[1]);
+        } else
+        if (def.name=="Program.FunDef") {
+            compileFunDef(w, def, null);
+        }
 }
 
 void main(string[] argv)
 {
-	string fname = argv.length > 1 ? argv[1] : "prg.lam";
-	string text = readText(fname);
-	ParseTree pt = Program(text);
+    string fname = argv.length > 1 ? argv[1] : "prg.lam";
+    string text = readText(fname);
+    ParseTree pt = Program(text);
     if (pt.end - pt.begin < text.length) {
         writeln("Parse error somewhere at");
         stderr.writeln("parse error");
         return writeln(text[pt.end..$]);
     }
-	//writeln(pt);
-	if (pt.successful) {
-		Writer wboot = new Writer;
-		/*num(0).gen(wboot);
-		wboot.put(CMD(Op.LDF, 0,0, "step"));
-		wboot.put(CMD(Op.CONS));
-		wboot.put(CMD(Op.RTN));*/
+    //writeln(pt);
+    if (pt.successful) {
+        Writer wboot = new Writer;
+        /*num(0).gen(wboot);
+        wboot.put(CMD(Op.LDF, 0,0, "step"));
+        wboot.put(CMD(Op.CONS));
+        wboot.put(CMD(Op.RTN));*/
 
         //num(0).gen(wboot);
         wboot.put(CMD(Op.LD, 0, 0)); // push world
@@ -222,15 +222,15 @@ void main(string[] argv)
         wboot.put(CMD(Op.AP, 1)); // returns state
 
         wboot.put(CMD(Op.LDF, 0,0, "step"));
-		wboot.put(CMD(Op.CONS));
-		wboot.put(CMD(Op.RTN));
+        wboot.put(CMD(Op.CONS));
+        wboot.put(CMD(Op.RTN));
         Writer w = new Writer;   
-		w.addToDefs(wboot);
-		compile(w, pt);
-		w.finish(0);
-	}
+        w.addToDefs(wboot);
+        compile(w, pt);
+        w.finish(0);
+    }
 
-	return;
+    return;
     /*  ////////////////////////// This is the old DSL used before parsing was added //////////////////////////
     Type Int = new TInt;
     Type Pos = new TTuple("x" in Int, "y" in Int);

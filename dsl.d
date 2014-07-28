@@ -206,7 +206,7 @@ class VTuple : Val {
                 auto val = new GenVal((Writer w) {
                     parent.gen(w);
                     for(int k = 0; k < i; k++)
-						w.put(Cmd!string(Op.CDR));
+                        w.put(Cmd!string(Op.CDR));
                     if (i < members.length-1) {
                         w.put(Cmd!string(Op.CAR));
                     }                    
@@ -254,8 +254,8 @@ class Args {
         return getArg(s);
     }
 
-	Val getArg(string s) {
-		foreach(i, a; args) {
+    Val getArg(string s) {
+        foreach(i, a; args) {
             if (a[0]==s)  {
                 if (myLevel < lowestReachingLevel)
                     lowestReachingLevel = myLevel;
@@ -263,7 +263,7 @@ class Args {
             }
         }
         assert(0, "unknown arg " ~ s);
-	}
+    }
 }
 
 void label(Writer w, string lab) {
